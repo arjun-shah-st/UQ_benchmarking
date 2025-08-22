@@ -203,6 +203,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Result folders 
-airfoil_results_new/
+#airfoil_results_new/
 generated_datasets/
 results/ 
