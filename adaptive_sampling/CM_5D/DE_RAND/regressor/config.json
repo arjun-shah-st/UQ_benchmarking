@@ -1,0 +1,29 @@
+{
+    "name": "Deep_Ensemble_Regressor",
+    "n_estimators": 5,
+    "hidden_sizes": [
+        256,
+        256
+    ],
+    "alpha": 0.1,
+    "requires_grad": false,
+    "activation_str": "ReLU",
+    "learning_rate": 0.003,
+    "epochs": 750,
+    "batch_size": 64,
+    "device": "cpu",
+    "use_wandb": false,
+    "wandb_project": null,
+    "wandb_run_name": null,
+    "n_jobs": 1,
+    "random_seed": null,
+    "input_dim": 5,
+    "scale_data": true,
+    "defective_models": [],
+    "logging_frequency": 20,
+    "fitted": true,
+    "optimizer": "type",
+    "scheduler": null,
+    "input_scaler": "TorchStandardScaler",
+    "output_scaler": "TorchStandardScaler"
+}

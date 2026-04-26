@@ -9,11 +9,26 @@ from scipy import stats as st
 import pandas as pd 
 from uqregressors.utils.file_manager import FileManager
 from uqregressors.metrics.metrics import compute_all_metrics
+from uqregressors.plotting.plotting import plot_pred_vs_true
 from uqregressors.utils.data_loader import validate_X_input, validate_and_prepare_inputs
 from torch.utils.data import TensorDataset, DataLoader 
 from torch.optim.lr_scheduler import CosineAnnealingLR
+import torch 
+import pickle
 
 DATASETS = ['Cd_nf_4D']
+
+def extract_model_from_path(path): 
+    fm = FileManager(path)
+    result_dict = fm.load_model(DeepEnsembleRegressor, path=path)
+    model = result_dict['model']
+    X_train = result_dict['X_train']
+    X_test = result_dict['X_test']
+    y_train = result_dict['y_train']
+    y_test = result_dict['y_test']
+    metrics = result_dict['metrics']
+
+    return model, X_train, X_test, y_train, y_test, metrics
 
 def extract_model(results_dir, dataset, split, model="DeepEnsemble", model_cls = DeepEnsembleRegressor): 
     """
@@ -175,13 +190,178 @@ def analyze_ensemble_members(results_dir, dataset, split, plot=False):
     print("New Metrics: ")
     for k, v in new_metrics.items(): print(k, v)
 
-def perform_weighted_prediction(): 
-    pass
+def perform_weighted_prediction(results_dir, dataset, split, path=None, plot=False, threshold=-4): 
+    if path is not None: 
+        model, X_train, X_test, y_train, y_test, prev_metrics = extract_model_from_path(path)
+    else: 
+        model, X_train, X_test, y_train, y_test, prev_metrics = extract_model(results_dir, dataset, split)
+    input_scaler = model.input_scaler 
+    output_scaler = model.output_scaler 
+    alpha = model.alpha
+    batch_size = model.batch_size 
+    loss_fn = model.loss_fn 
+    optimizer_cls = model.optimizer_cls 
+    learning_rate = model.learning_rate
+    nlls = np.zeros(len(model.models))
+    for i, m in enumerate(model.models): 
+        train_mean, train_lower, train_upper, train_metrics = evaluate_model(m, X_train, y_train, input_scaler, output_scaler, alpha)
+        nlls[i] = train_metrics["nll_gaussian"]
 
+    def softmax(x):
+        """Compute softmax values for each sets of scores in x."""
+        e_x = np.exp(x - np.max(x))  # Subtracting max for numerical stability
+        return e_x / e_x.sum(axis=0) # Sum along the specified axis (e.g., columns for multi-class)
+
+
+    unequal_weights = torch.tensor(softmax(-nlls), device=model.device).view(-1, 1)
+    mask = unequal_weights < np.exp(threshold)
+
+    thresholded_weights = unequal_weights.clone()
+
+    print("weights: ")
+    print (unequal_weights)
+
+    thresholded_weights[mask] = 1e-8
+    thresholded_weights = thresholded_weights / thresholded_weights.sum()
+
+    thresholded_equal = torch.ones_like(unequal_weights)
+    thresholded_equal[mask] = 1e-8 
+    thresholded_equal = thresholded_equal / thresholded_equal.sum() 
+
+    equal_weights = torch.ones_like(unequal_weights) 
+    equal_weights = equal_weights / equal_weights.sum()
+
+    weight_arr = [equal_weights, unequal_weights, thresholded_equal, thresholded_weights]
+    weighted_scores = [] 
+    weighted_nlls = []
+
+    for weights in weight_arr: 
+        # Predict with weights
+        X_tensor = validate_X_input(X_test, X_test.shape[1], requires_grad=False)
+        X_tensor = input_scaler.transform(X_tensor)
+        preds = [] 
+
+        for m in model.models: 
+            m.eval()
+            pred = m(X_tensor)
+            preds.append(pred)
+
+        preds = torch.stack(preds)
+
+        means = preds[:, :, 0]
+        variances = preds[:, :, 1]
+        mean = (means * weights).sum(dim=0) / weights.sum()
+        variance = (weights * (variances + means ** 2)).sum(dim=0) - mean ** 2
+        std = variance.sqrt()
+
+        std_mult = torch.tensor(st.norm.ppf(1 - model.alpha / 2), device=mean.device)
+
+        lower = mean - std * std_mult 
+        upper = mean + std * std_mult 
+
+        if model.scale_data: 
+            mean = output_scaler.inverse_transform(mean.view(-1, 1)).squeeze().detach().cpu().numpy()
+            lower = output_scaler.inverse_transform(lower.view(-1, 1)).squeeze().detach().cpu().numpy()
+            upper = output_scaler.inverse_transform(upper.view(-1, 1)).squeeze().detach().cpu().numpy()
+
+        new_metrics = compute_all_metrics(mean, lower, upper, y_test, alpha=alpha)
+
+        weighted_scores.append(new_metrics["interval_score"])
+        weighted_nlls.append(new_metrics["nll_gaussian"])
+        #print ("-" * 10)
+        #print("Previous Metrics: ")
+        #for k, v in prev_metrics.items(): print(k, v)
+        #print ("-" * 10)
+        #print("New Metrics: ")
+        #for k, v in new_metrics.items(): print(k, v)
+
+        if plot: 
+            plot_pred_vs_true(mean, lower, upper, y_test, include_confidence=True, show=True)
+        plt.show()
+
+    return weighted_scores, weighted_nlls
+
+def compare_weighting_methods(): 
+    paths = ["results/airfoil_results_lr_sched/p_250_runs/CV_models/Cd_nf_4d/DeepEnsemble", 
+             "results/airfoil_results_lr_sched/p_250_runs/CV_models/Cl_nf_4d/DeepEnsemble", 
+             "results/airfoil_results_lr_sched/p_250_runs/CV_models/Cm_nf_4D/DeepEnsemble", 
+             "results/airfoil_results_lr_sched/p_1000_runs/CV_models/Cl_nf_4d/DeepEnsemble/original_lr", 
+             "results/airfoil_results_lr_sched/p_1000_runs/CV_models/Cd_nf_4D/DeepEnsemble", 
+             "results/airfoil_results_lr_sched/p_1000_runs/CV_models/Cm_nf_4D/DeepEnsemble"
+             ]
+
+    score_results = [] 
+    nll_results = []
+
+    for path in paths: 
+        split_dirs = [d for d in os.listdir(path) if d.startswith('split_')]
+        for split_dir in split_dirs: 
+            split_path = os.path.join(path, split_dir)
+            scores, nlls = perform_weighted_prediction(None, None, None, path=split_path)
+            score_results.append(scores)
+            nll_results.append(nlls)
+
+    with open("weighted_deep_ensembles/score_results.pkl", 'wb') as f: 
+        pickle.dump(score_results, f)
+
+    with open("weighted_deep_ensembles/nll_results.pkl", 'wb') as f: 
+        pickle.dump(nll_results, f)
+
+def plot_weighting_results(): 
+    # Load results
+    with open("weighted_deep_ensembles/score_results.pkl", 'rb') as f:
+        score_results = pickle.load(f)
+
+    with open("weighted_deep_ensembles/nll_results.pkl", 'rb') as f:
+        nll_results = pickle.load(f)
+
+    weight_names = ["equal", "unequal", "thresholded_equal", "thresholded_unequal"]
+
+    def plot_sorted_metric(metric_results, metric_name):
+        """
+        Plot sorted metric results for different weighting methods.
+        
+        Args:
+            metric_results (list of lists): Outer list = splits, inner list = weighting methods
+            metric_name (str): 'Interval Score' or 'NLL'
+        """
+        # Convert to numpy array: shape (n_splits, n_methods)
+        arr = np.array(metric_results)  # shape (num_splits, num_methods)
+        
+        # Sort all columns by the first column
+        sort_idx = np.argsort(arr[:, 0])
+        arr_sorted = arr[sort_idx, :]
+        
+        plt.figure(figsize=(10,6))
+        for i in range(arr_sorted.shape[1]):
+            plt.plot(arr_sorted[:, i], marker='o', linestyle='-', alpha=0.7, label=weight_names[i])
+        
+        plt.yscale('log')  # Log scale for better visualization
+        plt.xlabel("Data Points / Splits (sorted by first method)")
+        plt.ylabel(metric_name)
+        plt.title(f"{metric_name} across splits for different weighting methods")
+        plt.legend()
+        plt.grid(True, which="both", alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+
+    # Plot Interval Scores
+    plot_sorted_metric(score_results, "Interval Score")
+
+    # Plot NLL
+    plot_sorted_metric(nll_results, "NLL")
 if __name__ == "__main__": 
     #for i in range(30): 
     #    extract_model("results/airfoil_results_lr_sched/p_250_runs", dataset = "Cl_nf_4D", split = f"split_{i}")
     #extract_model("results/airfoil_results_lr_sched/p_250_runs", dataset="Cl_nf_4D", split="split_6")
-    analyze_ensemble_members("results/airfoil_results_lr_sched/p_250_runs", dataset="Cl_nf_4D", split="split_6", plot=True)
+    #analyze_ensemble_members("results/airfoil_results_lr_sched/p_250_runs", dataset="Cl_nf_4D", split="split_6", plot=True)
     #for i in range(6): 
     #    retrain_members_extra_epochs("results/airfoil_results_new/p_250_runs", dataset="Cl_nf_4D", split=f"split_{i}", model="KFoldQuantileRegression", model_cls=KFoldCQR, extra_epochs=600)
+    #scores, nlls = perform_weighted_prediction("results/airfoil_results_lr_sched/p_250_runs/", dataset="Cl_nf_4D", split="split_8", plot=False)
+    #print(scores)
+    #print (nlls)
+    #compare_weighting_methods()
+    #plot_weighting_results()
+    model, X_train, X_test, Y_train, Y_test, metrics = extract_model("results/airfoil_results_lr_sched/p_1000_runs", dataset = "Cl_nf_4D", split = f"split_1")
+    print(len(X_train))
+    print(len(X_test))

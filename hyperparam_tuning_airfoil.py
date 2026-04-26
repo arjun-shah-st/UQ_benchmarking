@@ -243,16 +243,16 @@ bbmm_gpr = BBMM_GP(
 bbmm_gpr_param_space = {
     "epochs": lambda trial:trial.suggest_int("epochs", 500, 2000), 
     "learning_rate": lambda trial:trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True),
-    "weight_decay": lambda trial:trial.suggest_float("weight_decay", 1e-4, 1, log=True)
+    "weight_decay": lambda trial:trial.suggest_float("weight_decay", 1e-6, 1, log=True)
 }
 
 UQ_REGRESSORS = {
-    'MonteCarloDropout': (dropout, dropout_param_space, interval_score, False),
-    'DeepEnsemble': (deep_ens, deep_ens_param_space, interval_score, False), 
-    'ConformalQuantileRegression': (cqr, cqr_param_space, interval_score, False), 
-    'KFoldQuantileRegression': (k_fold_cqr, k_fold_cqr_param_space, interval_score, False), 
-    'NormalizedConformalEnsembles': (conformal_ens, conformal_ens_param_space, interval_score, False),
-    #'BBMM_GPR': (bbmm_gpr, bbmm_gpr_param_space, interval_score, False)
+    #'MonteCarloDropout': (dropout, dropout_param_space, interval_score, False),
+    #'DeepEnsemble': (deep_ens, deep_ens_param_space, interval_score, False), 
+    #'ConformalQuantileRegression': (cqr, cqr_param_space, interval_score, False), 
+    #'KFoldQuantileRegression': (k_fold_cqr, k_fold_cqr_param_space, interval_score, False), 
+    #'NormalizedConformalEnsembles': (conformal_ens, conformal_ens_param_space, interval_score, False),
+    'BBMM_GPR': (bbmm_gpr, bbmm_gpr_param_space, interval_score, False)
 }
 
 def test_uqregressor_hyperparam_tuning(output_dir='uqregressor_results'):

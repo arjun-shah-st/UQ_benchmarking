@@ -1,0 +1,35 @@
+{
+    "bounds": [
+        [
+            7.5,
+            25.0,
+            1.0,
+            6.09,
+            3.0,
+            -7.0,
+            -7.5,
+            0.0,
+            0.75
+        ],
+        [
+            11.0,
+            37.5,
+            1.4,
+            6.56,
+            9.0,
+            -3.0,
+            -1.5,
+            4.0,
+            0.85
+        ]
+    ],
+    "n_iterations": 10,
+    "n_batch_points": 75,
+    "n_initial_points": 250,
+    "dimension": 9,
+    "evaluate": true,
+    "random_seed": 1064,
+    "save_interval": 1,
+    "plot_kwargs": null,
+    "_iteration": 9
+}

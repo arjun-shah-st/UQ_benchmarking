@@ -18,6 +18,7 @@ from scipy import stats
 import pandas as pd
 from itertools import combinations
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from covmetrics import ERT 
 
 # List of datasets and models we expect
 DATASETS =['Cl_nf_4d', 'Cd_nf_4D', 'Cm_nf_4D']#, 'Cl_nf_4D', 'Cd_nf_4D']#['abalone', 'concrete', 'blog', 'wine_red']
@@ -47,7 +48,7 @@ CALIBRATION_SETTINGS = {
 # Group models by their optimization objective
 LIKELIHOOD_MODELS = []
 INTERVAL_SCORE_MODELS = ['MonteCarloDropout', 'DeepEnsemble', 'TempScaleDeepEns', 'ConformalQuantileRegression', 'KFoldQuantileRegression', 'NormalizedConformalEnsembles']
-FINAL_COMP_MODELS = ['MonteCarloDropout', 'DeepEnsemble','KFoldQuantileRegression', 'ConformalQuantileRegression', 'NormalizedConformalEnsembles']
+FINAL_COMP_MODELS = ['BBMM_GPR', 'MonteCarloDropout', 'DeepEnsemble','KFoldQuantileRegression', 'ConformalQuantileRegression', 'NormalizedConformalEnsembles']
 
 def plot_tuning_curves(results_dir, dataset, save_dir=None, figsize=(8, 5)):
     """Plot hyperparameter tuning curves for all models using interval score.
@@ -357,8 +358,8 @@ def evaluate_final_models(results_dir, n_splits=20, test_size=0.3):
         first_model = FINAL_COMP_MODELS[0]
         model_path = os.path.join(results_dir, "models", f"{dataset}_{first_model}")
         result_dict = fm.load_model(MODEL_CLASSES[first_model], path=model_path)
-        X = np.concatenate([result_dict['X_train'], result_dict['X_test']])
-        y = np.concatenate([result_dict['y_train'], result_dict['y_test']])
+        X = result_dict['X_train']
+        y = result_dict['y_train']
         
         # For each split
         for split in range(n_splits):
@@ -780,7 +781,7 @@ def evaluate_single_model_cv(results_dir, target_model_name, reference_model_nam
         try:
             original_model_dict = fm.load_model(MODEL_CLASSES[target_model_name], path=target_model_path)
             target_model = original_model_dict['model']
-            target_model.learning_rate = target_model.learning_rate * 10 ** -2
+            #target_model.learning_rate = target_model.learning_rate * 10 ** -2
             #target_model.scheduler_cls = CosineAnnealingLR
             #target_model.scheduler_kwargs = {"T_max": target_model.epochs}
 
@@ -799,8 +800,8 @@ def evaluate_single_model_cv(results_dir, target_model_name, reference_model_nam
                 )
                 
                 # Get the train-test split from reference model
-                X_train = ref_result_dict['X_train']
-                y_train = ref_result_dict['y_train']
+                X_train = ref_result_dict['X_train'][:700]
+                y_train = ref_result_dict['y_train'][:700]
 
                 ### Apply inverse scaling
                 if inverse_scaling:
@@ -1049,11 +1050,103 @@ def pairwise_comparison(results_dir, order, normalizing_factor="pct_imp", report
     print(total_stds)
     print("----------------")
 
+def evaluate_conditional_coverage_metrics(results_dir, target_model_name, save_number="", splits = None): 
+    fm = FileManager(results_dir)
+    
+    # For each dataset
+    for dataset in DATASETS:
+        print(f"\nEvaluating {target_model_name} on {dataset}")
+        
+        # Get the directory containing the reference model's CV splits
+        ref_cv_base_dir = os.path.join(results_dir, 'CV_models', dataset, target_model_name)
+        if not os.path.exists(ref_cv_base_dir):
+            print(f"No CV results found for reference model {target_model_name} on {dataset}")
+            continue
+        
+        # Get list of splits
+        split_dirs = [d for d in os.listdir(ref_cv_base_dir) if d.startswith('split_')]
+        if splits is not None: 
+            split_dirs = [d for d in split_dirs if d in splits]
+
+        if not split_dirs:
+            print(f"No splits found for {reference_model_name} on {dataset}")
+            continue
+        
+        # Load the target model to get its configuration
+        target_model_path = os.path.join(results_dir, "models", f"{dataset}_{target_model_name}")
+        if not os.path.exists(target_model_path):
+            print(f"No original model found for {target_model_name} on {dataset}")
+            continue
+            
+        try:
+            original_model_dict = fm.load_model(MODEL_CLASSES[target_model_name], path=target_model_path)
+            target_model = original_model_dict['model']
+            #target_model.learning_rate = target_model.learning_rate * 10 ** -2
+            #target_model.scheduler_cls = CosineAnnealingLR
+            #target_model.scheduler_kwargs = {"T_max": target_model.epochs}
+
+        except Exception as e:
+            print(f"Error loading original model: {str(e)}")
+            continue
+        
+        # Process each split
+        for split_dir in split_dirs:
+            print(f"Processing {split_dir}...")
+            try:
+                # Load the reference split data
+                ref_result_dict = fm.load_model(
+                    MODEL_CLASSES[reference_model_name], 
+                    path=os.path.join(ref_cv_base_dir, split_dir)
+                )
+                
+                # Get the train-test split from reference model
+                X_train = ref_result_dict['X_train'][:700]
+                y_train = ref_result_dict['y_train'][:700]
+
+                ### Apply inverse scaling
+                if inverse_scaling:
+                    y_train = 1/y_train
+
+                X_test = ref_result_dict['X_test']
+                y_test = ref_result_dict['y_test']
+
+                # Train and evaluate target model
+                print(target_model.optimizer_kwargs)
+                target_model.fit(X_train, y_train)
+                mean, lower, upper = target_model.predict(X_test)
+
+                ### Apply inverse scaling for Cd
+                if inverse_scaling: 
+                    mean = 1 / mean 
+                    lower = 1 / upper 
+                    upper = 1 / lower 
+
+                metrics = compute_all_metrics(mean, lower, upper, y_test, alpha=target_model.alpha)
+                
+                # Save results
+                cv_save_dir = os.path.join(results_dir, 'CV_models', dataset, target_model_name, split_dir + "_" + save_number)
+                os.makedirs(cv_save_dir, exist_ok=True)
+                
+                fm.save_model(
+                    model=target_model,
+                    path=cv_save_dir,
+                    metrics=metrics,
+                    X_train=X_train,
+                    y_train=y_train,
+                    X_test=X_test,
+                    y_test=y_test
+                )
+                print(f"Saved results for {split_dir} to {cv_save_dir}")
+                print(f"Metrics: {metrics}")
+                
+            except Exception as e:
+                print(f"Error processing split {split_dir}: {str(e)}")
+
 if __name__ == "__main__":
     results_dir = 'results/airfoil_results_lr_sched/p_1000_runs'
     #perform_scaled_comparison(results_dir, save_dir= os.path.join(results_dir, "cv_comparisons"))
     #evaluate_single_model_cv(results_dir, "TempScaleDeepEns", reference_model_name="BBMM_GPR", save_number="")
-    evaluate_single_model_cv(results_dir, "DeepEnsemble", reference_model_name="KFoldQuantileRegression", save_number="test") #, save_number="1", splits=['split_23'])
+    #evaluate_single_model_cv(results_dir, "BBMM_GPR", reference_model_name="KFoldQuantileRegression", save_number="") #, save_number="1", splits=['split_23'])
     #load_and_compare_results(results_dir=results_dir, 
     #                         generate_calibration=False, 
     #                         generate_comparisons=True, 
@@ -1068,7 +1161,7 @@ if __name__ == "__main__":
     #    test_size=0.3,
     #)
     
-    plot_cv_results(results_dir, save_dir='results/airfoil_results_lr_sched/p_1000_runs/comp_plots')
+    #plot_cv_results(results_dir, save_dir='results/airfoil_results_lr_sched/p_1000_runs/comp_plots')
     # Then analyze the results
     #analyze_cv_results(results_dir)
     #plot_cv_results(results_dir, save_dir = os.path.join(results_dir, "comp_plots", "subset"))

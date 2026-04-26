@@ -1,0 +1,27 @@
+{
+    "bounds": [
+        [
+            0.0,
+            0.2,
+            0.02,
+            1000000.0,
+            0.0
+        ],
+        [
+            0.08,
+            0.6,
+            0.15,
+            100000000.0,
+            15.0
+        ]
+    ],
+    "n_iterations": 750,
+    "n_batch_points": 1,
+    "n_initial_points": 250,
+    "dimension": 5,
+    "evaluate": true,
+    "random_seed": 1089384,
+    "save_interval": 1,
+    "plot_kwargs": null,
+    "_iteration": 722
+}
