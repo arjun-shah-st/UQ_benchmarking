@@ -11,7 +11,8 @@ from torch.quasirandom import SobolEngine
 class BADGESampler(BaseSampler): 
     def __init__(self, directory, regressor, generator, bounds, n_iterations, n_batch_points,
                  initial_inputs, initial_targets, test_inputs=None, test_targets=None, plotter=None, 
-                 save_interval=1, random_seed=42, n_initial_samples=1000, n_to_optimize=5, optimization_steps=10, opt_lr=0.001): 
+                 save_interval=1, random_seed=42, n_initial_samples=1000, n_to_optimize=5, optimization_steps=10, opt_lr=0.001, 
+                 mode="GRUBS"): 
         
         super().__init__(directory, regressor, generator, bounds, n_iterations, n_batch_points, 
                          initial_inputs, initial_targets, test_inputs, test_targets, plotter, 
@@ -20,6 +21,7 @@ class BADGESampler(BaseSampler):
         self.n_to_optimize = n_to_optimize 
         self.optimization_steps = optimization_steps 
         self.opt_lr = opt_lr
+        self.mode = mode
         
     def sample_step(self): 
         selected_xs = [] 
@@ -86,12 +88,17 @@ class BADGESampler(BaseSampler):
         mean, lower, upper = self.regressor.predict(x_tensor)
 
         z = norm.ppf(1 - self.regressor.alpha / 2) 
-        std = (upper - lower) / (2 * z) * 10 ** 2 
+        std = (upper - lower) / (2 * z) * 10 ** 2 ## Added scaling to keep values in a reasonable range
         var = std ** 2
         #return var.squeeze()
         #return float(var)#float(avg_residual_norm * var)
 
-        acquisition_value = avg_residual_norm * var
+        if self.mode == "GRUBS": 
+            acquisition_value = avg_residual_norm * var
+        elif self.mode == "UNC": 
+            acquisition_value = var 
+        elif self.mode == "DIV": 
+            acquisition_value = avg_residual_norm
         return acquisition_value
     
     def _optimize_acquisition(self, dim, Q, n_initial_samples=100000, n_to_optimize=3, n_steps=10, lr=0.001):

@@ -397,15 +397,15 @@ bounds = np.ones((2, ndim)) * np.array([[-1, 1]]).T
 input_sampler = InputGenerator(bounds, ndim, seed=42)
 init_inputs, init_targets = CentralPeakGenerator(-5).generate(input_sampler.uniformly_sample(init_points))
 
-#deep_ens = DeepEnsembleRegressor(n_estimators=5, hidden_sizes=[100, 100], epochs=500, learning_rate=0.001, batch_size=32) 
+deep_ens = DeepEnsembleRegressor(n_estimators=5, hidden_sizes=[100, 100], epochs=500, learning_rate=0.001, batch_size=32) 
 #deep_ens.fit(init_inputs, init_targets)
 
-cqr = KFoldCQR(n_estimators = 2, hidden_sizes=[100, 100], epochs=100, learning_rate=0.001, batch_size=32)
+#cqr = KFoldCQR(n_estimators = 2, hidden_sizes=[100, 100], epochs=100, learning_rate=0.001, batch_size=32)
 
 #plot_fit(deep_ens, init_inputs, init_targets)
 
 rounds = 5 
-adaptive_sampling_inputs = (cqr, init_inputs, init_targets, ndim, candidate_points, batch_size)
+adaptive_sampling_inputs = (deep_ens, init_inputs, init_targets, ndim, candidate_points, batch_size)
 
 for round in range(rounds): 
     adaptive_sampling_inputs = run_adaptive_sampling_round_DE_nD(*(adaptive_sampling_inputs))

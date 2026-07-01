@@ -6,8 +6,9 @@ from UBAS.generators.shift_wing_generator import ShiftWingGenerator
 
 gen = ShiftWingGenerator(qoi="CD")
 
-input = np.ones((1000, 9)) * np.array([8.8473,35.3156,1.3404,6.4858,4.8286,-4.7202,-3.324,3.7337,0.8])
+input = [ 9.8111,    6.192431, 26.668,     0.5276,    8.124106,  0.85,      4.2041,
+ -5.4078  ]
 
-output_x, output_y = gen.generate(input)
+output_x, output_y = gen.generate(input, replace=False, exact_match=True)
 
 print(output_x, output_y)

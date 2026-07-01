@@ -20,9 +20,9 @@ import numpy as np
 
 ndim = 9 
 init_points = 250 
-n_iterations = 750 #10
-batch_size = 1 #75
-plot_interval = 75 # 1 
+n_iterations = 10
+batch_size = 75
+plot_interval = 1 
 
 test_points = 2000 
 

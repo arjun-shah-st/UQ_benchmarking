@@ -41,6 +41,8 @@ class BaseSampler:
         os.makedirs(self.directory, exist_ok=True) 
 
         self.PERF_DATA_PATH = os.path.join(self.directory, "performance_data.json")
+        self.PRED_DIR = os.path.join(self.directory, "predictions")
+        os.makedirs(self.PRED_DIR, exist_ok=True)
 
         x_exact = np.zeros((self.n_iterations * self.n_batch_points + self.n_initial_points, self.dimension))
         y_exact = np.zeros(x_exact.shape[0])
@@ -116,8 +118,8 @@ class BaseSampler:
                 upper = self.output_scaler.inverse_transform(upper.reshape(-1, 1)).ravel() 
                 metrics = compute_all_metrics(mean, lower, upper, self.test_outputs, alpha=self.regressor.alpha)
                 metrics["n_samples"] = start_index
-
-                self.model_performance[i] = metrics 
+                self.model_performance[i] = metrics
+                self.save_iteration_predictions(i, mean, lower, upper) 
 
                 if dynamic_plotting is True: 
                     tracked_variables["n_samples"].append(start_index)
@@ -179,7 +181,8 @@ class BaseSampler:
             upper = self.output_scaler.inverse_transform(upper.reshape(-1, 1)).ravel() 
             metrics = compute_all_metrics(mean, lower, upper, self.test_outputs, alpha=self.regressor.alpha)
             metrics["n_samples"] = n_iterations * n_batch_points + n_initial_points 
-            self.model_performance[n_iterations] = metrics 
+            self.model_performance[n_iterations] = metrics
+            self.save_iteration_predictions(n_iterations, mean, lower, upper) 
             if dynamic_plotting is True: 
                     tracked_variables["n_samples"].append(start_index)
                     for j, track_value in enumerate(track_values):
@@ -199,9 +202,22 @@ class BaseSampler:
         """
         A single sampling step
         """
-
+        
         scaled_x = self.rng.random((self.n_batch_points, len(self.bounds[1])))
         return scaled_x
+
+    def save_iteration_predictions(self, iteration, mean, lower, upper):
+        """
+        Save predictions for a specific iteration to a separate file
+        """
+        pred_data = {
+            "mean": mean.astype(float),
+            "lower": lower.astype(float),
+            "upper": upper.astype(float)
+        }
+        pred_file = os.path.join(self.PRED_DIR, f"iteration_{iteration}_predictions.pkl")
+        with open(pred_file, 'wb') as f:
+            pickle.dump(pred_data, f)
 
     def save_model_performance(self, model_performance_list, tracked_values=None): 
         dict_to_save = {} 
